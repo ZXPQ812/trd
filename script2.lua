@@ -2,6 +2,7 @@ local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
 
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
@@ -21,16 +22,24 @@ local function m(z)
     return z
 end
 
-local function applyFlags()
+local function setFlag(value)
     if not setfflag then return false end
-    for k, v in pairs(flagtables) do
+    for k, _ in pairs(flagtables) do
         if getfflag(m(k)) then
-            setfflag(m(k), v)
+            setfflag(m(k), value)
         elseif getfflag(k) then
-            setfflag(k, v)
+            setfflag(k, value)
         end
     end
     return true
+end
+
+local function applyFlags()
+    return setFlag("-15")
+end
+
+local function resetFlags()
+    return setFlag("0")
 end
 
 local old = PlayerGui:FindFirstChild("SylaHub")
@@ -44,8 +53,8 @@ ScreenGui.Parent = PlayerGui
 
 local Main = Instance.new("Frame")
 Main.Name = "Main"
-Main.Size = UDim2.new(0, 420, 0, 440)
-Main.Position = UDim2.new(0.5, -210, 0.5, -220)
+Main.Size = UDim2.new(0, 420, 0, 520)
+Main.Position = UDim2.new(0.5, -210, 0.5, -260)
 Main.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
 Main.BorderSizePixel = 0
 Main.Active = true
@@ -320,43 +329,6 @@ local function makeSlider(parent, min, max, default, callback)
     }
 end
 
-local function makeButton(parent, text, callback)
-    local Button = Instance.new("TextButton")
-    Button.Name = "Button"
-    Button.Size = UDim2.new(1, 0, 1, 0)
-    Button.BackgroundColor3 = Color3.fromRGB(45, 45, 58)
-    Button.BorderSizePixel = 0
-    Button.Text = text
-    Button.TextColor3 = Color3.fromRGB(235, 235, 240)
-    Button.Font = Enum.Font.GothamMedium
-    Button.TextSize = 14
-    Button.AutoButtonColor = false
-    Button.Parent = parent
-
-    local BtnCorner = Instance.new("UICorner")
-    BtnCorner.CornerRadius = UDim.new(0, 8)
-    BtnCorner.Parent = Button
-
-    local BtnStroke = Instance.new("UIStroke")
-    BtnStroke.Color = Color3.fromRGB(70, 70, 85)
-    BtnStroke.Thickness = 1
-    BtnStroke.Parent = Button
-
-    Button.MouseEnter:Connect(function()
-        TweenService:Create(Button, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(60, 60, 75)}):Play()
-    end)
-
-    Button.MouseLeave:Connect(function()
-        TweenService:Create(Button, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(45, 45, 58)}):Play()
-    end)
-
-    Button.MouseButton1Click:Connect(function()
-        callback()
-    end)
-
-    return Button
-end
-
 local function makeNotify(text, duration)
     local existing = ScreenGui:FindFirstChild("Notify")
     if existing then existing:Destroy() end
@@ -420,7 +392,8 @@ makeSwitch(FFlagRow, false, function(state)
         applyFlags()
         makeNotify("FFlag applied", 2)
     else
-        makeNotify("Disabled", 2)
+        resetFlags()
+        makeNotify("FFlag reset", 2)
     end
 end)
 
@@ -496,79 +469,96 @@ makeSwitch(TeleportRow, false, function(state)
     makeNotify(state and "Teleport Bypass enabled" or "Teleport Bypass disabled", 2)
 end)
 
-local TeleportDistRow = makeRow(62)
-local TeleportDistLabel = Instance.new("TextLabel")
-TeleportDistLabel.Size = UDim2.new(1, -90, 0, 20)
-TeleportDistLabel.Position = UDim2.new(0, 14, 0, 8)
-TeleportDistLabel.BackgroundTransparency = 1
-TeleportDistLabel.Text = "Teleport Distance"
-TeleportDistLabel.TextColor3 = Color3.fromRGB(235, 235, 240)
-TeleportDistLabel.Font = Enum.Font.GothamMedium
-TeleportDistLabel.TextSize = 14
-TeleportDistLabel.TextXAlignment = Enum.TextXAlignment.Left
-TeleportDistLabel.Parent = TeleportDistRow
+local BombRow = makeRow(52)
+local BombLabel = Instance.new("TextLabel")
+BombLabel.Size = UDim2.new(1, -90, 1, 0)
+BombLabel.Position = UDim2.new(0, 14, 0, 0)
+BombLabel.BackgroundTransparency = 1
+BombLabel.Text = "Auto Give Bomb"
+BombLabel.TextColor3 = Color3.fromRGB(235, 235, 240)
+BombLabel.Font = Enum.Font.GothamMedium
+BombLabel.TextSize = 14
+BombLabel.TextXAlignment = Enum.TextXAlignment.Left
+BombLabel.Parent = BombRow
 
-local TeleportDistance = 500
-makeSlider(TeleportDistRow, 50, 5000, 500, function(v)
-    TeleportDistance = v
+local AutoBombEnabled = false
+makeSwitch(BombRow, false, function(state)
+    AutoBombEnabled = state
+    if state then
+        makeNotify("Auto Give Bomb enabled", 2)
+    else
+        makeNotify("Auto Give Bomb disabled", 2)
+    end
 end)
 
-local TeleportBtnRow = makeRow(44)
-makeButton(TeleportBtnRow, "Teleport", function()
-    if not TeleportEnabled then
-        makeNotify("Enable Teleport Bypass first", 2)
-        return
+local BombRangeRow = makeRow(62)
+local BombRangeLabel = Instance.new("TextLabel")
+BombRangeLabel.Size = UDim2.new(1, -90, 0, 20)
+BombRangeLabel.Position = UDim2.new(0, 14, 0, 8)
+BombRangeLabel.BackgroundTransparency = 1
+BombRangeLabel.Text = "Reach Range"
+BombRangeLabel.TextColor3 = Color3.fromRGB(235, 235, 240)
+BombRangeLabel.Font = Enum.Font.GothamMedium
+BombRangeLabel.TextSize = 14
+BombRangeLabel.TextXAlignment = Enum.TextXAlignment.Left
+BombRangeLabel.Parent = BombRangeRow
+
+local BombRange = 30
+makeSlider(BombRangeRow, 5, 100, 30, function(v)
+    BombRange = v
+    if ReachCircle then
+        ReachCircle.Size = Vector3.new(v * 2, v * 2, v * 2)
     end
+end)
 
-    local char = LocalPlayer.Character
-    if not char then return end
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    if not hrp or not hum or hum.Health <= 0 then return end
+local HitboxRow = makeRow(52)
+local HitboxLabel = Instance.new("TextLabel")
+HitboxLabel.Size = UDim2.new(1, -90, 1, 0)
+HitboxLabel.Position = UDim2.new(0, 14, 0, 0)
+HitboxLabel.BackgroundTransparency = 1
+HitboxLabel.Text = "Hitbox Expander"
+HitboxLabel.TextColor3 = Color3.fromRGB(235, 235, 240)
+HitboxLabel.Font = Enum.Font.GothamMedium
+HitboxLabel.TextSize = 14
+HitboxLabel.TextXAlignment = Enum.TextXAlignment.Left
+HitboxLabel.Parent = HitboxRow
 
-    local cam = workspace.CurrentCamera
-    local look = cam.CFrame.LookVector
-    local startPos = hrp.Position
-    local target = startPos + look * TeleportDistance
-
-    local params = RaycastParams.new()
-    params.FilterType = Enum.RaycastFilterType.Exclude
-    params.FilterDescendantsInstances = {char}
-    local result = workspace:Raycast(startPos, look * TeleportDistance, params)
-    if result then
-        target = result.Position + look * 3
+local HitboxEnabled = false
+makeSwitch(HitboxRow, false, function(state)
+    HitboxEnabled = state
+    if state then
+        makeNotify("Hitbox Expander enabled", 2)
+    else
+        makeNotify("Hitbox Expander disabled", 2)
     end
+end)
 
-    for _, part in ipairs(char:GetDescendants()) do
-        if part:IsA("BasePart") then
-            part.CanCollide = false
-        end
-    end
+local HitboxSizeRow = makeRow(62)
+local HitboxSizeLabel = Instance.new("TextLabel")
+HitboxSizeLabel.Size = UDim2.new(1, -90, 0, 20)
+HitboxSizeLabel.Position = UDim2.new(0, 14, 0, 8)
+HitboxSizeLabel.BackgroundTransparency = 1
+HitboxSizeLabel.Text = "Hitbox Size"
+HitboxSizeLabel.TextColor3 = Color3.fromRGB(235, 235, 240)
+HitboxSizeLabel.Font = Enum.Font.GothamMedium
+HitboxSizeLabel.TextSize = 14
+HitboxSizeLabel.TextXAlignment = Enum.TextXAlignment.Left
+HitboxSizeLabel.Parent = HitboxSizeRow
 
-    hrp.CFrame = CFrame.new(target)
-    hrp.AssemblyLinearVelocity = Vector3.zero
-    hrp.AssemblyAngularVelocity = Vector3.zero
-
-    task.wait(0.1)
-    hrp.AssemblyLinearVelocity = Vector3.zero
-    hrp.AssemblyAngularVelocity = Vector3.zero
-    task.wait(0.05)
-
-    for _, part in ipairs(char:GetDescendants()) do
-        if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-            part.CanCollide = true
-        end
-    end
-
-    makeNotify("Teleported", 2)
+local HitboxSize = 5
+makeSlider(HitboxSizeRow, 1, 20, 5, function(v)
+    HitboxSize = v
 end)
 
 Minimize.MouseButton1Click:Connect(function()
     ScrollFrame.Visible = not ScrollFrame.Visible
-    Main.Size = ScrollFrame.Visible and UDim2.new(0, 420, 0, 440) or UDim2.new(0, 420, 0, 46)
+    Main.Size = ScrollFrame.Visible and UDim2.new(0, 420, 0, 520) or UDim2.new(0, 420, 0, 46)
 end)
 
 Close.MouseButton1Click:Connect(function()
+    resetFlags()
+    if ReachCircle then ReachCircle:Destroy() end
+    if SpinBV then SpinBV:Destroy() end
     ScreenGui:Destroy()
 end)
 
@@ -603,6 +593,238 @@ RunService.RenderStepped:Connect(function(dt)
     end
 end)
 
+local ReachCircle = nil
+
+local function updateReachCircle()
+    if not AutoBombEnabled then
+        if ReachCircle then
+            ReachCircle:Destroy()
+            ReachCircle = nil
+        end
+        return
+    end
+
+    local char, hrp = getCharacter()
+    if not char or not hrp then
+        if ReachCircle then
+            ReachCircle:Destroy()
+            ReachCircle = nil
+        end
+        return
+    end
+
+    if not ReachCircle then
+        ReachCircle = Instance.new("Part")
+        ReachCircle.Name = "SylaReachCircle"
+        ReachCircle.Shape = Enum.PartType.Ball
+        ReachCircle.Material = Enum.Material.ForceField
+        ReachCircle.Color = Color3.fromRGB(60, 140, 255)
+        ReachCircle.Transparency = 0.75
+        ReachCircle.CanCollide = false
+        ReachCircle.CanTouch = false
+        ReachCircle.CanQuery = false
+        ReachCircle.Anchored = true
+        ReachCircle.Size = Vector3.new(BombRange * 2, BombRange * 2, BombRange * 2)
+        ReachCircle.Parent = Workspace
+    end
+
+    ReachCircle.Size = Vector3.new(BombRange * 2, BombRange * 2, BombRange * 2)
+    ReachCircle.CFrame = hrp.CFrame
+end
+
+local function hasToolWithName(char, name)
+    if not char then return false end
+    for _, tool in ipairs(char:GetChildren()) do
+        if tool:IsA("Tool") and string.find(string.lower(tool.Name), string.lower(name)) then
+            return true, tool
+        end
+    end
+    return false
+end
+
+local function anyPlayerHasBomb()
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer then
+            local char = plr.Character
+            if char then
+                local found = hasToolWithName(char, "bomb")
+                if found then return true, plr end
+            end
+        end
+    end
+    return false
+end
+
+local SpinBV = nil
+local BombLoopActive = false
+
+local function startSpin(hrp)
+    if SpinBV then SpinBV:Destroy() end
+    SpinBV = Instance.new("BodyAngularVelocity")
+    SpinBV.AngularVelocity = Vector3.new(0, 30, 0)
+    SpinBV.MaxTorque = Vector3.new(0, math.huge, 0)
+    SpinBV.P = 3000
+    SpinBV.Parent = hrp
+end
+
+local function stopSpin()
+    if SpinBV then
+        SpinBV:Destroy()
+        SpinBV = nil
+    end
+end
+
+task.spawn(function()
+    while task.wait(0.1) do
+        updateReachCircle()
+
+        if not AutoBombEnabled then
+            BombLoopActive = false
+            stopSpin()
+            continue
+        end
+
+        local char, hrp, hum = getCharacter()
+        if not char or not hrp or not hum or hum.Health <= 0 then
+            BombLoopActive = false
+            stopSpin()
+            continue
+        end
+
+        local hasTool = false
+        for _, tool in ipairs(char:GetChildren()) do
+            if tool:IsA("Tool") then
+                hasTool = true
+                break
+            end
+        end
+        if not hasTool then
+            local backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
+            if backpack then
+                for _, tool in ipairs(backpack:GetChildren()) do
+                    if tool:IsA("Tool") then
+                        hasTool = true
+                        break
+                    end
+                end
+            end
+        end
+
+        if not hasTool then
+            BombLoopActive = false
+            stopSpin()
+            continue
+        end
+
+        local anyBomb = anyPlayerHasBomb()
+        if anyBomb then
+            BombLoopActive = false
+            stopSpin()
+            continue
+        end
+
+        local target = nil
+        local targetPlr = nil
+        local closest = math.huge
+
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer then
+                local pChar = plr.Character
+                if pChar then
+                    local pRoot = pChar:FindFirstChild("HumanoidRootPart")
+                    local pHum = pChar:FindFirstChildOfClass("Humanoid")
+                    if pRoot and pHum and pHum.Health > 0 then
+                        local dist = (pRoot.Position - hrp.Position).Magnitude
+                        if dist <= BombRange and dist < closest then
+                            closest = dist
+                            target = pRoot
+                            targetPlr = plr
+                        end
+                    end
+                end
+            end
+        end
+
+        if target and targetPlr then
+            local savedPos = hrp.CFrame
+            BombLoopActive = true
+            startSpin(hrp)
+
+            task.spawn(function()
+                while AutoBombEnabled and BombLoopActive do
+                    local c, r = getCharacter()
+                    if not c or not r then break end
+
+                    local tp = targetPlr.Character
+                    if not tp then break end
+                    local tRoot = tp:FindFirstChild("HumanoidRootPart")
+                    local tHum = tp:FindFirstChildOfClass("Humanoid")
+                    if not tRoot or not tHum or tHum.Health <= 0 then break end
+
+                    if hasToolWithName(tp, "bomb") then break end
+
+                    r.CFrame = CFrame.new(tRoot.Position) * CFrame.Angles(0, math.rad(os.clock() * 1800) % (math.pi * 2), 0)
+                    task.wait()
+                end
+
+                stopSpin()
+                local c, r = getCharacter()
+                if c and r and savedPos then
+                    r.CFrame = savedPos
+                end
+                BombLoopActive = false
+            end)
+        end
+    end
+end)
+
+local function applyHitbox(char)
+    if not char then return end
+    local head = char:FindFirstChild("Head")
+    if not head then return end
+    if HitboxEnabled then
+        head.Size = Vector3.new(HitboxSize, HitboxSize, HitboxSize)
+        head.CanCollide = false
+        head.CanTouch = true
+        head.Massless = true
+    else
+        head.Size = Vector3.new(2, 1, 1)
+        head.CanCollide = false
+        head.CanTouch = true
+        head.Massless = false
+    end
+end
+
+local function applyHitboxToAll()
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer then
+            local char = plr.Character
+            if char then
+                local head = char:FindFirstChild("Head")
+                if head then
+                    if HitboxEnabled then
+                        head.Size = Vector3.new(HitboxSize, HitboxSize, HitboxSize)
+                        head.CanCollide = false
+                        head.CanTouch = true
+                        head.Massless = true
+                    else
+                        head.Size = Vector3.new(2, 1, 1)
+                        head.CanCollide = false
+                        head.CanTouch = true
+                        head.Massless = false
+                    end
+                end
+            end
+        end
+    end
+end
+
+RunService.Heartbeat:Connect(function()
+    if HitboxEnabled then
+        applyHitboxToAll()
+    end
+end)
+
 local function onCharacterAdded(character)
     local humanoid = character:WaitForChild("Humanoid")
     humanoid.Died:Connect(function()
@@ -611,8 +833,26 @@ local function onCharacterAdded(character)
             applyFlags()
             makeNotify("Reapplied", 2)
         end
+        stopSpin()
+        BombLoopActive = false
     end)
 end
+
+for _, plr in ipairs(Players:GetPlayers()) do
+    if plr ~= LocalPlayer then
+        plr.CharacterAdded:Connect(function(c)
+            task.wait(1)
+            applyHitbox(c)
+        end)
+    end
+end
+
+Players.PlayerAdded:Connect(function(plr)
+    plr.CharacterAdded:Connect(function(c)
+        task.wait(1)
+        applyHitbox(c)
+    end)
+end)
 
 if LocalPlayer.Character then
     onCharacterAdded(LocalPlayer.Character)
