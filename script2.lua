@@ -6,6 +6,7 @@ local Workspace = game:GetService("Workspace")
 
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+local Camera = Workspace.CurrentCamera
 
 local flagtables = {
     ["DFIntMaximumUnstickForceInGs"] = "-15"
@@ -34,13 +35,8 @@ local function setFlag(value)
     return true
 end
 
-local function applyFlags()
-    return setFlag("-15")
-end
-
-local function resetFlags()
-    return setFlag("0")
-end
+local function applyFlags() return setFlag("-15") end
+local function resetFlags() return setFlag("0") end
 
 local old = PlayerGui:FindFirstChild("SylaHub")
 if old then old:Destroy() end
@@ -49,6 +45,7 @@ local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "SylaHub"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.IgnoreGuiInset = true
 ScreenGui.Parent = PlayerGui
 
 local Main = Instance.new("Frame")
@@ -506,9 +503,6 @@ BombRangeLabel.Parent = BombRangeRow
 local BombRange = 30
 makeSlider(BombRangeRow, 5, 100, 30, function(v)
     BombRange = v
-    if ReachCircle then
-        ReachCircle.Size = Vector3.new(v * 2, v * 2, v * 2)
-    end
 end)
 
 local HitboxRow = makeRow(52)
@@ -595,7 +589,7 @@ end)
 
 local ReachCircle = nil
 
-local function updateReachCircle()
+RunService.RenderStepped:Connect(function()
     if not AutoBombEnabled then
         if ReachCircle then
             ReachCircle:Destroy()
@@ -613,7 +607,7 @@ local function updateReachCircle()
         return
     end
 
-    if not ReachCircle then
+    if not ReachCircle or not ReachCircle.Parent then
         ReachCircle = Instance.new("Part")
         ReachCircle.Name = "SylaReachCircle"
         ReachCircle.Shape = Enum.PartType.Ball
@@ -624,19 +618,20 @@ local function updateReachCircle()
         ReachCircle.CanTouch = false
         ReachCircle.CanQuery = false
         ReachCircle.Anchored = true
+        ReachCircle.CastShadow = false
         ReachCircle.Size = Vector3.new(BombRange * 2, BombRange * 2, BombRange * 2)
-        ReachCircle.Parent = Workspace
+        ReachCircle.Parent = Camera
     end
 
     ReachCircle.Size = Vector3.new(BombRange * 2, BombRange * 2, BombRange * 2)
     ReachCircle.CFrame = hrp.CFrame
-end
+end)
 
 local function hasToolWithName(char, name)
     if not char then return false end
     for _, tool in ipairs(char:GetChildren()) do
         if tool:IsA("Tool") and string.find(string.lower(tool.Name), string.lower(name)) then
-            return true, tool
+            return true
         end
     end
     return false
@@ -646,10 +641,25 @@ local function anyPlayerHasBomb()
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr ~= LocalPlayer then
             local char = plr.Character
-            if char then
-                local found = hasToolWithName(char, "bomb")
-                if found then return true, plr end
+            if char and hasToolWithName(char, "bomb") then
+                return true
             end
+        end
+    end
+    return false
+end
+
+local function localHasTool()
+    local char = LocalPlayer.Character
+    if char then
+        for _, tool in ipairs(char:GetChildren()) do
+            if tool:IsA("Tool") then return true end
+        end
+    end
+    local backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
+    if backpack then
+        for _, tool in ipairs(backpack:GetChildren()) do
+            if tool:IsA("Tool") then return true end
         end
     end
     return false
@@ -675,9 +685,7 @@ local function stopSpin()
 end
 
 task.spawn(function()
-    while task.wait(0.1) do
-        updateReachCircle()
-
+    while task.wait(0.15) do
         if not AutoBombEnabled then
             BombLoopActive = false
             stopSpin()
@@ -691,37 +699,19 @@ task.spawn(function()
             continue
         end
 
-        local hasTool = false
-        for _, tool in ipairs(char:GetChildren()) do
-            if tool:IsA("Tool") then
-                hasTool = true
-                break
-            end
-        end
-        if not hasTool then
-            local backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
-            if backpack then
-                for _, tool in ipairs(backpack:GetChildren()) do
-                    if tool:IsA("Tool") then
-                        hasTool = true
-                        break
-                    end
-                end
-            end
-        end
-
-        if not hasTool then
+        if not localHasTool() then
             BombLoopActive = false
             stopSpin()
             continue
         end
 
-        local anyBomb = anyPlayerHasBomb()
-        if anyBomb then
+        if anyPlayerHasBomb() then
             BombLoopActive = false
             stopSpin()
             continue
         end
+
+        if BombLoopActive then continue end
 
         local target = nil
         local targetPlr = nil
@@ -763,7 +753,7 @@ task.spawn(function()
 
                     if hasToolWithName(tp, "bomb") then break end
 
-                    r.CFrame = CFrame.new(tRoot.Position) * CFrame.Angles(0, math.rad(os.clock() * 1800) % (math.pi * 2), 0)
+                    r.CFrame = CFrame.new(tRoot.Position)
                     task.wait()
                 end
 
@@ -778,50 +768,164 @@ task.spawn(function()
     end
 end)
 
-local function applyHitbox(char)
+local originalHeadProps = {}
+
+local function expandHitbox(plr)
+    local char = plr.Character
     if not char then return end
     local head = char:FindFirstChild("Head")
     if not head then return end
-    if HitboxEnabled then
-        head.Size = Vector3.new(HitboxSize, HitboxSize, HitboxSize)
-        head.CanCollide = false
-        head.CanTouch = true
-        head.Massless = true
+
+    if not originalHeadProps[head] then
+        originalHeadProps[head] = {
+            Size = head.Size,
+            Transparency = head.Transparency,
+            CanCollide = head.CanCollide,
+            CanTouch = head.CanTouch,
+            Massless = head.Massless,
+            Material = head.Material,
+        }
+    end
+
+    head.Size = Vector3.new(HitboxSize, HitboxSize, HitboxSize)
+    head.Transparency = 0.7
+    head.CanCollide = false
+    head.CanTouch = true
+    head.Massless = true
+end
+
+local function restoreHitbox(plr)
+    local char = plr.Character
+    if not char then return end
+    local head = char:FindFirstChild("Head")
+    if not head then return end
+
+    local orig = originalHeadProps[head]
+    if orig then
+        head.Size = orig.Size
+        head.Transparency = orig.Transparency
+        head.CanCollide = orig.CanCollide
+        head.CanTouch = orig.CanTouch
+        head.Massless = orig.Massless
+        head.Material = orig.Material
+        originalHeadProps[head] = nil
     else
         head.Size = Vector3.new(2, 1, 1)
+        head.Transparency = 0
         head.CanCollide = false
         head.CanTouch = true
         head.Massless = false
     end
 end
 
-local function applyHitboxToAll()
+local function handleCharacter(plr, char)
+    if plr == LocalPlayer then return end
+
+    local function hookHead()
+        local head = char:WaitForChild("Head", 5)
+        if not head then return end
+        if HitboxEnabled then
+            task.wait(0.5)
+            expandHitbox(plr)
+        end
+    end
+
+    task.spawn(hookHead)
+
+    char.ChildAdded:Connect(function(c)
+        if c.Name == "Head" then
+            task.wait(0.3)
+            if HitboxEnabled then
+                expandHitbox(plr)
+            end
+        end
+    end)
+
+    char.AncestryChanged:Connect(function()
+        if not char:IsDescendantOf(Workspace) then
+            originalHeadProps[char:FindFirstChild("Head")] = nil
+        end
+    end)
+
+    if HitboxEnabled then
+        task.wait(0.5)
+        expandHitbox(plr)
+    end
+end
+
+for _, plr in ipairs(Players:GetPlayers()) do
+    if plr ~= LocalPlayer then
+        plr.CharacterAdded:Connect(function(c)
+            handleCharacter(plr, c)
+        end)
+        if plr.Character then
+            handleCharacter(plr, plr.Character)
+        end
+    end
+end
+
+Players.PlayerAdded:Connect(function(plr)
+    if plr == LocalPlayer then return end
+    plr.CharacterAdded:Connect(function(c)
+        handleCharacter(plr, c)
+    end)
+    if plr.Character then
+        handleCharacter(plr, plr.Character)
+    end
+end)
+
+Players.PlayerRemoving:Connect(function(plr)
+    if plr == LocalPlayer then return end
+    local char = plr.Character
+    if char then
+        local head = char:FindFirstChild("Head")
+        if head then
+            originalHeadProps[head] = nil
+        end
+    end
+end)
+
+local hitboxUpdateTick = 0
+RunService.Heartbeat:Connect(function(dt)
+    if not HitboxEnabled then
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer then
+                restoreHitbox(plr)
+            end
+        end
+        return
+    end
+
+    hitboxUpdateTick = hitboxUpdateTick + dt
+    if hitboxUpdateTick < 0.2 then return end
+    hitboxUpdateTick = 0
+
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr ~= LocalPlayer then
             local char = plr.Character
             if char then
                 local head = char:FindFirstChild("Head")
                 if head then
-                    if HitboxEnabled then
-                        head.Size = Vector3.new(HitboxSize, HitboxSize, HitboxSize)
-                        head.CanCollide = false
-                        head.CanTouch = true
-                        head.Massless = true
-                    else
-                        head.Size = Vector3.new(2, 1, 1)
-                        head.CanCollide = false
-                        head.CanTouch = true
-                        head.Massless = false
+                    if head.Size ~= Vector3.new(HitboxSize, HitboxSize, HitboxSize) then
+                        if not originalHeadProps[head] then
+                            originalHeadProps[head] = {
+                                Size = Vector3.new(2, 1, 1),
+                                Transparency = 0,
+                                CanCollide = false,
+                                CanTouch = true,
+                                Massless = false,
+                                Material = head.Material,
+                            }
+                        end
                     end
+                    head.Size = Vector3.new(HitboxSize, HitboxSize, HitboxSize)
+                    head.Transparency = 0.7
+                    head.CanCollide = false
+                    head.CanTouch = true
+                    head.Massless = true
                 end
             end
         end
-    end
-end
-
-RunService.Heartbeat:Connect(function()
-    if HitboxEnabled then
-        applyHitboxToAll()
     end
 end)
 
@@ -837,22 +941,6 @@ local function onCharacterAdded(character)
         BombLoopActive = false
     end)
 end
-
-for _, plr in ipairs(Players:GetPlayers()) do
-    if plr ~= LocalPlayer then
-        plr.CharacterAdded:Connect(function(c)
-            task.wait(1)
-            applyHitbox(c)
-        end)
-    end
-end
-
-Players.PlayerAdded:Connect(function(plr)
-    plr.CharacterAdded:Connect(function(c)
-        task.wait(1)
-        applyHitbox(c)
-    end)
-end)
 
 if LocalPlayer.Character then
     onCharacterAdded(LocalPlayer.Character)
