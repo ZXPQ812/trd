@@ -589,7 +589,7 @@ end)
 
 local ReachCircle = nil
 
-RunService.RenderStepped:Connect(function()
+local function updateReachCircle()
     if not AutoBombEnabled then
         if ReachCircle then
             ReachCircle:Destroy()
@@ -625,7 +625,9 @@ RunService.RenderStepped:Connect(function()
 
     ReachCircle.Size = Vector3.new(BombRange * 2, BombRange * 2, BombRange * 2)
     ReachCircle.CFrame = hrp.CFrame
-end)
+end
+
+RunService.RenderStepped:Connect(updateReachCircle)
 
 local function hasToolWithName(char, name)
     if not char then return false end
@@ -685,7 +687,7 @@ local function stopSpin()
 end
 
 task.spawn(function()
-    while task.wait(0.15) do
+    while task.wait(0.1) do
         if not AutoBombEnabled then
             BombLoopActive = false
             stopSpin()
@@ -741,21 +743,50 @@ task.spawn(function()
             startSpin(hrp)
 
             task.spawn(function()
-                while AutoBombEnabled and BombLoopActive do
+                local runServiceConnection
+                runServiceConnection = RunService.Stepped:Connect(function()
+                    if not AutoBombEnabled or not BombLoopActive then
+                        if runServiceConnection then runServiceConnection:Disconnect() end
+                        return
+                    end
+
                     local c, r = getCharacter()
-                    if not c or not r then break end
+                    if not c or not r then
+                        if runServiceConnection then runServiceConnection:Disconnect() end
+                        return
+                    end
 
                     local tp = targetPlr.Character
-                    if not tp then break end
+                    if not tp then
+                        if runServiceConnection then runServiceConnection:Disconnect() end
+                        return
+                    end
                     local tRoot = tp:FindFirstChild("HumanoidRootPart")
                     local tHum = tp:FindFirstChildOfClass("Humanoid")
-                    if not tRoot or not tHum or tHum.Health <= 0 then break end
+                    if not tRoot or not tHum or tHum.Health <= 0 then
+                        if runServiceConnection then runServiceConnection:Disconnect() end
+                        return
+                    end
 
-                    if hasToolWithName(tp, "bomb") then break end
+                    if hasToolWithName(tp, "bomb") then
+                        if runServiceConnection then runServiceConnection:Disconnect() end
+                        return
+                    end
 
                     r.CFrame = CFrame.new(tRoot.Position)
-                    task.wait()
+                end)
+
+                while AutoBombEnabled and BombLoopActive do
+                    task.wait(0.1)
+                    local c = LocalPlayer.Character
+                    if not c then break end
+                    local tp = targetPlr.Character
+                    if not tp or hasToolWithName(tp, "bomb") then break end
+                    local tHum = tp:FindFirstChildOfClass("Humanoid")
+                    if not tHum or tHum.Health <= 0 then break end
                 end
+
+                if runServiceConnection then runServiceConnection:Disconnect() end
 
                 stopSpin()
                 local c, r = getCharacter()
@@ -768,47 +799,72 @@ task.spawn(function()
     end
 end)
 
-local originalHeadProps = {}
+local headOriginals = setmetatable({}, {__mode = "k"})
 
-local function expandHitbox(plr)
+local function expandHead(plr)
     local char = plr.Character
     if not char then return end
     local head = char:FindFirstChild("Head")
     if not head then return end
 
-    if not originalHeadProps[head] then
-        originalHeadProps[head] = {
+    if not headOriginals[head] then
+        headOriginals[head] = {
             Size = head.Size,
             Transparency = head.Transparency,
             CanCollide = head.CanCollide,
             CanTouch = head.CanTouch,
             Massless = head.Massless,
-            Material = head.Material,
         }
     end
 
-    head.Size = Vector3.new(HitboxSize, HitboxSize, HitboxSize)
-    head.Transparency = 0.7
-    head.CanCollide = false
-    head.CanTouch = true
-    head.Massless = true
+    local targetSize = Vector3.new(HitboxSize, HitboxSize, HitboxSize)
+    if head.Size ~= targetSize then
+        head.Size = targetSize
+    end
+    if head.Transparency ~= 0.7 then
+        head.Transparency = 0.7
+    end
+    if head.CanCollide ~= false then
+        head.CanCollide = false
+    end
+    if head.CanTouch ~= true then
+        head.CanTouch = true
+    end
+    if head.Massless ~= true then
+        head.Massless = true
+    end
+
+    for _, descendant in ipairs(head:GetDescendants()) do
+        if descendant:IsA("BasePart") or descendant:IsA("Decal") then
+            if not headOriginals[descendant] then
+                headOriginals[descendant] = {
+                    Transparency = descendant.Transparency,
+                    CanCollide = descendant:IsA("BasePart") and descendant.CanCollide or nil,
+                }
+            end
+            if descendant:IsA("Decal") then
+                descendant.Transparency = 0.7
+            elseif descendant:IsA("BasePart") then
+                descendant.Transparency = 0.7
+                descendant.CanCollide = false
+                descendant.Massless = true
+            end
+        end
+    end
 end
 
-local function restoreHitbox(plr)
+local function restoreHead(plr)
     local char = plr.Character
     if not char then return end
     local head = char:FindFirstChild("Head")
     if not head then return end
 
-    local orig = originalHeadProps[head]
+    local orig = headOriginals[head]
     if orig then
         head.Size = orig.Size
         head.Transparency = orig.Transparency
         head.CanCollide = orig.CanCollide
-        head.CanTouch = orig.CanTouch
-        head.Massless = orig.Massless
-        head.Material = orig.Material
-        originalHeadProps[head] = nil
+        head.CanTouch = orig.CanTouch        head.Massless = orig.Massless
     else
         head.Size = Vector3.new(2, 1, 1)
         head.Transparency = 0
@@ -816,115 +872,67 @@ local function restoreHitbox(plr)
         head.CanTouch = true
         head.Massless = false
     end
-end
 
-local function handleCharacter(plr, char)
-    if plr == LocalPlayer then return end
-
-    local function hookHead()
-        local head = char:WaitForChild("Head", 5)
-        if not head then return end
-        if HitboxEnabled then
-            task.wait(0.5)
-            expandHitbox(plr)
+    for _, descendant in ipairs(head:GetDescendants()) do
+        if descendant:IsA("BasePart") or descendant:IsA("Decal") then
+            local o = headOriginals[descendant]
+            if o then
+                descendant.Transparency = o.Transparency
+                if descendant:IsA("BasePart") and o.CanCollide ~= nil then
+                    descendant.CanCollide = o.CanCollide
+                end
+            else
+                descendant.Transparency = 0
+            end
         end
     end
 
-    task.spawn(hookHead)
+    headOriginals[head] = nil
+end
 
-    char.ChildAdded:Connect(function(c)
-        if c.Name == "Head" then
+local function hookPlayer(plr)
+    if plr == LocalPlayer then return end
+
+    local function onChar(char)
+        char:WaitForChild("Head", 10)
+        if HitboxEnabled then
             task.wait(0.3)
-            if HitboxEnabled then
-                expandHitbox(plr)
-            end
+            expandHead(plr)
         end
-    end)
+    end
 
-    char.AncestryChanged:Connect(function()
-        if not char:IsDescendantOf(Workspace) then
-            originalHeadProps[char:FindFirstChild("Head")] = nil
-        end
-    end)
-
-    if HitboxEnabled then
-        task.wait(0.5)
-        expandHitbox(plr)
+    plr.CharacterAdded:Connect(onChar)
+    if plr.Character then
+        task.spawn(onChar, plr.Character)
     end
 end
 
 for _, plr in ipairs(Players:GetPlayers()) do
-    if plr ~= LocalPlayer then
-        plr.CharacterAdded:Connect(function(c)
-            handleCharacter(plr, c)
-        end)
-        if plr.Character then
-            handleCharacter(plr, plr.Character)
-        end
-    end
+    hookPlayer(plr)
 end
+Players.PlayerAdded:Connect(hookPlayer)
 
-Players.PlayerAdded:Connect(function(plr)
-    if plr == LocalPlayer then return end
-    plr.CharacterAdded:Connect(function(c)
-        handleCharacter(plr, c)
-    end)
-    if plr.Character then
-        handleCharacter(plr, plr.Character)
-    end
-end)
-
-Players.PlayerRemoving:Connect(function(plr)
-    if plr == LocalPlayer then return end
-    local char = plr.Character
-    if char then
-        local head = char:FindFirstChild("Head")
-        if head then
-            originalHeadProps[head] = nil
-        end
-    end
-end)
-
-local hitboxUpdateTick = 0
+local hitboxAccumulator = 0
 RunService.Heartbeat:Connect(function(dt)
+    hitboxAccumulator = hitboxAccumulator + dt
+
     if not HitboxEnabled then
+        if hitboxAccumulator < 0.5 then return end
+        hitboxAccumulator = 0
         for _, plr in ipairs(Players:GetPlayers()) do
             if plr ~= LocalPlayer then
-                restoreHitbox(plr)
+                restoreHead(plr)
             end
         end
         return
     end
 
-    hitboxUpdateTick = hitboxUpdateTick + dt
-    if hitboxUpdateTick < 0.2 then return end
-    hitboxUpdateTick = 0
+    if hitboxAccumulator < 1 then return end
+    hitboxAccumulator = 0
 
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr ~= LocalPlayer then
-            local char = plr.Character
-            if char then
-                local head = char:FindFirstChild("Head")
-                if head then
-                    if head.Size ~= Vector3.new(HitboxSize, HitboxSize, HitboxSize) then
-                        if not originalHeadProps[head] then
-                            originalHeadProps[head] = {
-                                Size = Vector3.new(2, 1, 1),
-                                Transparency = 0,
-                                CanCollide = false,
-                                CanTouch = true,
-                                Massless = false,
-                                Material = head.Material,
-                            }
-                        end
-                    end
-                    head.Size = Vector3.new(HitboxSize, HitboxSize, HitboxSize)
-                    head.Transparency = 0.7
-                    head.CanCollide = false
-                    head.CanTouch = true
-                    head.Massless = true
-                end
-            end
+            expandHead(plr)
         end
     end
 end)
