@@ -50,8 +50,8 @@ ScreenGui.Parent = PlayerGui
 
 local Main = Instance.new("Frame")
 Main.Name = "Main"
-Main.Size = UDim2.new(0, 420, 0, 520)
-Main.Position = UDim2.new(0.5, -210, 0.5, -260)
+Main.Size = UDim2.new(0, 420, 0, 560)
+Main.Position = UDim2.new(0.5, -210, 0.5, -280)
 Main.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
 Main.BorderSizePixel = 0
 Main.Active = true
@@ -448,6 +448,23 @@ makeSwitch(Speed3Row, false, function(state)
     makeNotify(state and "Speed CFrame V3 enabled" or "Speed CFrame V3 disabled", 2)
 end)
 
+local SpeedValueRow = makeRow(62)
+local SpeedValueLabel = Instance.new("TextLabel")
+SpeedValueLabel.Size = UDim2.new(1, -90, 0, 20)
+SpeedValueLabel.Position = UDim2.new(0, 14, 0, 8)
+SpeedValueLabel.BackgroundTransparency = 1
+SpeedValueLabel.Text = "Speed Value"
+SpeedValueLabel.TextColor3 = Color3.fromRGB(235, 235, 240)
+SpeedValueLabel.Font = Enum.Font.GothamMedium
+SpeedValueLabel.TextSize = 14
+SpeedValueLabel.TextXAlignment = Enum.TextXAlignment.Left
+SpeedValueLabel.Parent = SpeedValueRow
+
+local CFrameSpeedValue = 60
+makeSlider(SpeedValueRow, 10, 500, 60, function(v)
+    CFrameSpeedValue = v
+end)
+
 local TeleportRow = makeRow(52)
 local TeleportLabel = Instance.new("TextLabel")
 TeleportLabel.Size = UDim2.new(1, -90, 1, 0)
@@ -546,7 +563,7 @@ end)
 
 Minimize.MouseButton1Click:Connect(function()
     ScrollFrame.Visible = not ScrollFrame.Visible
-    Main.Size = ScrollFrame.Visible and UDim2.new(0, 420, 0, 520) or UDim2.new(0, 420, 0, 46)
+    Main.Size = ScrollFrame.Visible and UDim2.new(0, 420, 0, 560) or UDim2.new(0, 420, 0, 46)
 end)
 
 Close.MouseButton1Click:Connect(function()
@@ -566,9 +583,9 @@ local function getCharacter()
 end
 
 local speeds = {
-    {flag = function() return SpeedEnabled end, speed = 60},
-    {flag = function() return Speed2Enabled end, speed = 100},
-    {flag = function() return Speed3Enabled end, speed = 150},
+    {flag = function() return SpeedEnabled end, mult = 1},
+    {flag = function() return Speed2Enabled end, mult = 1.66},
+    {flag = function() return Speed3Enabled end, mult = 2.5},
 }
 
 RunService.RenderStepped:Connect(function(dt)
@@ -581,7 +598,7 @@ RunService.RenderStepped:Connect(function(dt)
 
     for _, entry in ipairs(speeds) do
         if entry.flag() then
-            local delta = moveDir * entry.speed * dt
+            local delta = moveDir * CFrameSpeedValue * entry.mult * dt
             hrp.CFrame = hrp.CFrame + delta
         end
     end
@@ -589,7 +606,7 @@ end)
 
 local ReachCircle = nil
 
-local function updateReachCircle()
+RunService.RenderStepped:Connect(function()
     if not AutoBombEnabled then
         if ReachCircle then
             ReachCircle:Destroy()
@@ -625,9 +642,7 @@ local function updateReachCircle()
 
     ReachCircle.Size = Vector3.new(BombRange * 2, BombRange * 2, BombRange * 2)
     ReachCircle.CFrame = hrp.CFrame
-end
-
-RunService.RenderStepped:Connect(updateReachCircle)
+end)
 
 local function hasToolWithName(char, name)
     if not char then return false end
@@ -669,6 +684,7 @@ end
 
 local SpinBV = nil
 local BombLoopActive = false
+local ActiveConnection = nil
 
 local function startSpin(hrp)
     if SpinBV then SpinBV:Destroy() end
@@ -686,36 +702,40 @@ local function stopSpin()
     end
 end
 
+local function stopTeleportLoop()
+    if ActiveConnection then
+        ActiveConnection:Disconnect()
+        ActiveConnection = nil
+    end
+    stopSpin()
+    BombLoopActive = false
+end
+
 task.spawn(function()
-    while task.wait(0.1) do
+    while task.wait(0.05) do
         if not AutoBombEnabled then
-            BombLoopActive = false
-            stopSpin()
+            stopTeleportLoop()
             continue
         end
 
         local char, hrp, hum = getCharacter()
         if not char or not hrp or not hum or hum.Health <= 0 then
-            BombLoopActive = false
-            stopSpin()
+            stopTeleportLoop()
             continue
         end
 
         if not localHasTool() then
-            BombLoopActive = false
-            stopSpin()
+            stopTeleportLoop()
             continue
         end
 
         if anyPlayerHasBomb() then
-            BombLoopActive = false
-            stopSpin()
+            stopTeleportLoop()
             continue
         end
 
         if BombLoopActive then continue end
 
-        local target = nil
         local targetPlr = nil
         local closest = math.huge
 
@@ -729,7 +749,6 @@ task.spawn(function()
                         local dist = (pRoot.Position - hrp.Position).Magnitude
                         if dist <= BombRange and dist < closest then
                             closest = dist
-                            target = pRoot
                             targetPlr = plr
                         end
                     end
@@ -737,63 +756,50 @@ task.spawn(function()
             end
         end
 
-        if target and targetPlr then
+        if targetPlr then
             local savedPos = hrp.CFrame
             BombLoopActive = true
             startSpin(hrp)
 
-            task.spawn(function()
-                local runServiceConnection
-                runServiceConnection = RunService.Stepped:Connect(function()
-                    if not AutoBombEnabled or not BombLoopActive then
-                        if runServiceConnection then runServiceConnection:Disconnect() end
-                        return
-                    end
-
-                    local c, r = getCharacter()
-                    if not c or not r then
-                        if runServiceConnection then runServiceConnection:Disconnect() end
-                        return
-                    end
-
-                    local tp = targetPlr.Character
-                    if not tp then
-                        if runServiceConnection then runServiceConnection:Disconnect() end
-                        return
-                    end
-                    local tRoot = tp:FindFirstChild("HumanoidRootPart")
-                    local tHum = tp:FindFirstChildOfClass("Humanoid")
-                    if not tRoot or not tHum or tHum.Health <= 0 then
-                        if runServiceConnection then runServiceConnection:Disconnect() end
-                        return
-                    end
-
-                    if hasToolWithName(tp, "bomb") then
-                        if runServiceConnection then runServiceConnection:Disconnect() end
-                        return
-                    end
-
-                    r.CFrame = CFrame.new(tRoot.Position)
-                end)
-
-                while AutoBombEnabled and BombLoopActive do
-                    task.wait(0.1)
-                    local c = LocalPlayer.Character
-                    if not c then break end
-                    local tp = targetPlr.Character
-                    if not tp or hasToolWithName(tp, "bomb") then break end
-                    local tHum = tp:FindFirstChildOfClass("Humanoid")
-                    if not tHum or tHum.Health <= 0 then break end
+            ActiveConnection = RunService.Heartbeat:Connect(function()
+                if not AutoBombEnabled or not BombLoopActive then
+                    stopTeleportLoop()
+                    return
                 end
 
-                if runServiceConnection then runServiceConnection:Disconnect() end
+                local c = LocalPlayer.Character
+                if not c then
+                    stopTeleportLoop()
+                    if savedPos then
+                        local c2, r2 = getCharacter()
+                        if c2 and r2 then r2.CFrame = savedPos end
+                    end
+                    return
+                end
+                local r = c:FindFirstChild("HumanoidRootPart")
+                if not r then return end
 
-                stopSpin()
-                local c, r = getCharacter()
-                if c and r and savedPos then
+                local tp = targetPlr.Character
+                if not tp then
+                    stopTeleportLoop()
                     r.CFrame = savedPos
+                    return
                 end
-                BombLoopActive = false
+                local tRoot = tp:FindFirstChild("HumanoidRootPart")
+                local tHum = tp:FindFirstChildOfClass("Humanoid")
+                if not tRoot or not tHum or tHum.Health <= 0 then
+                    stopTeleportLoop()
+                    r.CFrame = savedPos
+                    return
+                end
+
+                if hasToolWithName(tp, "bomb") then
+                    stopTeleportLoop()
+                    r.CFrame = savedPos
+                    return
+                end
+
+                r.CFrame = CFrame.new(tRoot.Position)
             end)
         end
     end
@@ -801,55 +807,69 @@ end)
 
 local headOriginals = setmetatable({}, {__mode = "k"})
 
+local function applyHeadVisual(instance, doExpand)
+    if not instance then return end
+    if instance:IsA("Decal") or instance:IsA("Texture") then
+        if doExpand then
+            if not headOriginals[instance] then
+                headOriginals[instance] = {Transparency = instance.Transparency}
+            end
+            instance.Transparency = 0.7
+        else
+            local o = headOriginals[instance]
+            if o then
+                instance.Transparency = o.Transparency
+            else
+                instance.Transparency = 0
+            end
+        end
+    elseif instance:IsA("BasePart") then
+        if doExpand then
+            if not headOriginals[instance] then
+                headOriginals[instance] = {
+                    Size = instance.Size,
+                    Transparency = instance.Transparency,
+                    CanCollide = instance.CanCollide,
+                    Massless = instance.Massless,
+                }
+            end
+            instance.Size = Vector3.new(HitboxSize, HitboxSize, HitboxSize)
+            instance.Transparency = 0.7
+            instance.CanCollide = false
+            instance.Massless = true
+        else
+            local o = headOriginals[instance]
+            if o then
+                instance.Size = o.Size
+                instance.Transparency = o.Transparency
+                instance.CanCollide = o.CanCollide
+                instance.Massless = o.Massless
+                headOriginals[instance] = nil
+            else
+                instance.Transparency = 0
+            end
+        end
+    end
+end
+
+local function applyHeadRecursive(head, doExpand)
+    applyHeadVisual(head, doExpand)
+    for _, descendant in ipairs(head:GetDescendants()) do
+        applyHeadVisual(descendant, doExpand)
+    end
+end
+
 local function expandHead(plr)
     local char = plr.Character
     if not char then return end
     local head = char:FindFirstChild("Head")
     if not head then return end
 
-    if not headOriginals[head] then
-        headOriginals[head] = {
-            Size = head.Size,
-            Transparency = head.Transparency,
-            CanCollide = head.CanCollide,
-            CanTouch = head.CanTouch,
-            Massless = head.Massless,
-        }
-    end
-
-    local targetSize = Vector3.new(HitboxSize, HitboxSize, HitboxSize)
-    if head.Size ~= targetSize then
-        head.Size = targetSize
-    end
-    if head.Transparency ~= 0.7 then
-        head.Transparency = 0.7
-    end
-    if head.CanCollide ~= false then
-        head.CanCollide = false
-    end
-    if head.CanTouch ~= true then
-        head.CanTouch = true
-    end
-    if head.Massless ~= true then
-        head.Massless = true
-    end
+    applyHeadVisual(head, true)
+    head.CanTouch = true
 
     for _, descendant in ipairs(head:GetDescendants()) do
-        if descendant:IsA("BasePart") or descendant:IsA("Decal") then
-            if not headOriginals[descendant] then
-                headOriginals[descendant] = {
-                    Transparency = descendant.Transparency,
-                    CanCollide = descendant:IsA("BasePart") and descendant.CanCollide or nil,
-                }
-            end
-            if descendant:IsA("Decal") then
-                descendant.Transparency = 0.7
-            elseif descendant:IsA("BasePart") then
-                descendant.Transparency = 0.7
-                descendant.CanCollide = false
-                descendant.Massless = true
-            end
-        end
+        applyHeadVisual(descendant, true)
     end
 end
 
@@ -859,35 +879,11 @@ local function restoreHead(plr)
     local head = char:FindFirstChild("Head")
     if not head then return end
 
-    local orig = headOriginals[head]
-    if orig then
-        head.Size = orig.Size
-        head.Transparency = orig.Transparency
-        head.CanCollide = orig.CanCollide
-        head.CanTouch = orig.CanTouch        head.Massless = orig.Massless
-    else
+    applyHeadRecursive(head, false)
+    head.CanTouch = true
+    if not headOriginals[head] then
         head.Size = Vector3.new(2, 1, 1)
-        head.Transparency = 0
-        head.CanCollide = false
-        head.CanTouch = true
-        head.Massless = false
     end
-
-    for _, descendant in ipairs(head:GetDescendants()) do
-        if descendant:IsA("BasePart") or descendant:IsA("Decal") then
-            local o = headOriginals[descendant]
-            if o then
-                descendant.Transparency = o.Transparency
-                if descendant:IsA("BasePart") and o.CanCollide ~= nil then
-                    descendant.CanCollide = o.CanCollide
-                end
-            else
-                descendant.Transparency = 0
-            end
-        end
-    end
-
-    headOriginals[head] = nil
 end
 
 local function hookPlayer(plr)
@@ -898,6 +894,15 @@ local function hookPlayer(plr)
         if HitboxEnabled then
             task.wait(0.3)
             expandHead(plr)
+        end
+        local head = char:FindFirstChild("Head")
+        if head then
+            head.DescendantAdded:Connect(function(d)
+                if HitboxEnabled then
+                    task.wait(0.1)
+                    applyHeadRecursive(head, true)
+                end
+            end)
         end
     end
 
@@ -927,7 +932,7 @@ RunService.Heartbeat:Connect(function(dt)
         return
     end
 
-    if hitboxAccumulator < 1 then return end
+    if hitboxAccumulator < 0.5 then return end
     hitboxAccumulator = 0
 
     for _, plr in ipairs(Players:GetPlayers()) do
@@ -945,8 +950,7 @@ local function onCharacterAdded(character)
             applyFlags()
             makeNotify("Reapplied", 2)
         end
-        stopSpin()
-        BombLoopActive = false
+        stopTeleportLoop()
     end)
 end
 
